@@ -1,7 +1,8 @@
 {
   "profiles": {
     "Paper": {
-      "commandName": "Project"
+      "commandName": "Project",
+      "commandLineArgs": "\"C:\\\\dev\\\\FilterPaper\\\\src\\\\Paper\\\\TestClass.cs\""
     }
   }
 }

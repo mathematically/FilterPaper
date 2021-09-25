@@ -2,9 +2,9 @@
 
 namespace Paper
 {
-    class ConsoleWriter: IConsoleWriter
+    public class ConsoleWriter: IConsoleWriter
     {
-        public void Write(string output)
+        public void WriteLine(string output)
         {
             Console.WriteLine(output);
         }
