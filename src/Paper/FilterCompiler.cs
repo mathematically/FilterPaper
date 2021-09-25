@@ -8,11 +8,23 @@ using System.Runtime.Loader;
 using System.Xml;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using TextCopy;
 
 namespace Paper
 {
     public class FilterCompiler
     {
+        private readonly IConsoleWriter console;
+        private readonly IFileSystem fileSystem;
+        private readonly IFileInfo inputFile;
+        private readonly IFileInfo outputFile;
+        private readonly bool clipboard;
+
+        public FilterCompiler((IConsoleWriter, IFileSystem, IFileInfo, IFileInfo, bool) config)
+        {
+            (console, fileSystem, inputFile, outputFile, clipboard) = config;
+        }
+
         private const string CompiledDllName = "temp-compiled-filter.dll";
 
         private static readonly string[] TrustedPlatformAssemblies = GetData( "TRUSTED_PLATFORM_ASSEMBLIES" )
@@ -37,17 +49,6 @@ namespace Paper
             };
         }
 
-        private readonly IConsoleWriter console;
-        private readonly IFileSystem fileSystem;
-        private readonly IFileInfo inputFile;
-        private readonly IFileInfo outputFile;
-        private readonly bool clipboard;
-
-        public FilterCompiler((IConsoleWriter, IFileSystem, IFileInfo, IFileInfo, bool) config)
-        {
-            (console, fileSystem, inputFile, outputFile, clipboard) = config;
-        }
-
         public void Execute()
         {
             var filterCode = fileSystem.File.ReadAllText(inputFile.FullName);
@@ -65,16 +66,22 @@ namespace Paper
                 if (AssemblyLoadContext.Default.LoadFromAssemblyPath(compiledDllPath)
                     .GetType("Paper.TestClass")
                     .GetMethod("Execute")
-                    .Invoke(null, null) is XmlDocument result)
+                    .Invoke(null, null) is XmlDocument filterXml)
                 {
-                    if (outputFile.FullName != string.Empty)
+                    if (outputFile != null)
                     {
-                        fileSystem.File.WriteAllText(outputFile.FullName, result.ToString());
+                        using var outputFileWriter = new XmlTextWriter(outputFile.FullName, null);
+                        outputFileWriter.Formatting = Formatting.Indented;
+                        filterXml.Save(outputFileWriter);
                     }
 
                     if (clipboard)
                     {
-                        // todo clipboard is not .NET Core friendly?
+                        var stringWriter = new StringWriter();
+                        var xmlTextWriter = new XmlTextWriter(stringWriter) { Formatting = Formatting.Indented };
+                        filterXml.WriteTo(xmlTextWriter);
+
+                        ClipboardService.SetText(stringWriter.ToString());
                     }
                 }
                 else
