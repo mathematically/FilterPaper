@@ -1,5 +1,6 @@
 ﻿using static System.AppContext;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Abstractions;
 using System.Linq;
@@ -12,32 +13,20 @@ using TextCopy;
 
 namespace Paper
 {
-    public class FilterCompiler
+    public static class ReferencesFactory
     {
-        private readonly IConsoleWriter console;
-        private readonly IFileSystem fileSystem;
-        private readonly IFileInfo inputFile;
-        private readonly IFileInfo outputFile;
-        private readonly bool clipboard;
-
-        public FilterCompiler((IConsoleWriter, IFileSystem, IFileInfo, IFileInfo, bool) config)
-        {
-            (console, fileSystem, inputFile, outputFile, clipboard) = config;
-        }
-
-        private const string CompiledDllName = "temp-compiled-filter.dll";
-
         private static readonly string[] TrustedPlatformAssemblies = GetData( "TRUSTED_PLATFORM_ASSEMBLIES" )
             ?.ToString()
             ?.Split( ";".ToCharArray(), StringSplitOptions.RemoveEmptyEntries);
 
+        static MetadataReference GetAssemblyReference(string dllName)
+        {
+            return MetadataReference.CreateFromFile(TrustedPlatformAssemblies.Single(
+                a => a.Contains(dllName, StringComparison.OrdinalIgnoreCase)));
+        }
+
         private static MetadataReference[] GetReferences()
         {
-            MetadataReference GetAssemblyReference(string dllName)
-            {
-                return MetadataReference.CreateFromFile(TrustedPlatformAssemblies.Single(
-                    a => a.Contains(dllName, StringComparison.OrdinalIgnoreCase)));
-            }
 
             return new[]
             {
@@ -49,13 +38,54 @@ namespace Paper
             };
         }
 
+        public static MetadataReference[] Create(params string[] assemblyNames)
+        {
+            List<MetadataReference> references = new()
+            {
+                MetadataReference.CreateFromFile(typeof(object).GetTypeInfo().Assembly.Location)
+            };
+
+            references.AddRange(assemblyNames.Select(GetAssemblyReference));
+
+            return references.ToArray();
+        }
+    }
+
+    public class FilterCompiler
+    {
+        private const string CompiledDllName = "temp-compiled-filter.dll";
+
+        private const string Namespace = "LastEpoch";
+        private const string ClassName = "Filter";
+        private const string MethodName = "Execute";
+
+        private readonly IConsoleWriter console;
+        private readonly IFileSystem fileSystem;
+        private readonly IFileInfo inputFile;
+        private readonly IFileInfo outputFile;
+        private readonly bool clipboard;
+
+        public FilterCompiler(IConsoleWriter console, IFileSystem fileSystem, IFileInfo inputFile, IFileInfo outputFile, bool clipboard)
+        {
+            this.console = console;
+            this.fileSystem = fileSystem;
+            this.inputFile = inputFile;
+            this.outputFile = outputFile;
+            this.clipboard = clipboard;
+        }
+
         public void Execute()
         {
             var filterCode = fileSystem.File.ReadAllText(inputFile.FullName);
 
+            var assemblyReferences = ReferencesFactory.Create(
+                "system.runtime.dll", 
+                "system.io.dll", 
+                "system.private.xml.dll");
+
             var compilation = CSharpCompilation.Create(CompiledDllName)
                 .WithOptions(new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary))
-                .AddReferences(GetReferences())
+                .AddReferences(assemblyReferences)
                 .AddSyntaxTrees(SyntaxFactory.ParseSyntaxTree(filterCode));
 
             var compiledDllPath = fileSystem.Path.Combine(Directory.GetCurrentDirectory(), CompiledDllName);
@@ -63,16 +93,32 @@ namespace Paper
 
             if(compilationResult.Success)
             {
-                if (AssemblyLoadContext.Default.LoadFromAssemblyPath(compiledDllPath)
-                    .GetType("Paper.TestClass")
-                    .GetMethod("Execute")
-                    .Invoke(null, null) is XmlDocument filterXml)
+                var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(compiledDllPath);
+
+                var classType = assembly.GetType($"{Namespace}.{ClassName}");
+                if (classType == null)
+                {
+                    console.WriteLine($"Assembly compiled but could not find class {ClassName} in namespace {Namespace}.");
+                    return;
+                }
+
+                var method = classType.GetMethod(MethodName);
+                if (method == null)
+                {
+                    console.WriteLine($"Assembly compiled but could not find method {MethodName} in class {Namespace}.{ClassName}.");
+                    return;
+                }
+
+                if (method.Invoke(null, null) is XmlDocument filterXml)
                 {
                     if (outputFile != null)
                     {
                         using var outputFileWriter = new XmlTextWriter(outputFile.FullName, null);
                         outputFileWriter.Formatting = Formatting.Indented;
+
                         filterXml.Save(outputFileWriter);
+
+                        console.WriteLine($"Filter written to {outputFile.FullName}");
                     }
 
                     if (clipboard)
@@ -82,11 +128,13 @@ namespace Paper
                         filterXml.WriteTo(xmlTextWriter);
 
                         ClipboardService.SetText(stringWriter.ToString());
+
+                        console.WriteLine($"Filter copied to clipboard.");
                     }
                 }
                 else
                 {
-                    console.WriteLine("Class compiled but produced null xml results.");
+                    console.WriteLine($"Invoke of method {MethodName} in class {Namespace}.{ClassName}.");
                 }
             }
             else

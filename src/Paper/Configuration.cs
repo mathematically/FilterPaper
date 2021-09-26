@@ -19,19 +19,9 @@ namespace Paper
                 return Error;
             }
 
-            if (outputFile == null && !clipboard)
+            if (outputFile == null)
             {
                 outputFile = new FileInfoWrapper(fileSystem, new FileInfo(Path.ChangeExtension(inputFile.FullName, "xml") ?? string.Empty));
-            }
-
-            if (clipboard)
-            {
-                console.WriteLine($"Loot filter copied to clipboard.");
-            }
-
-            if (outputFile != null)
-            {
-                console.WriteLine($"Loot filter written to {outputFile.FullName}.");
             }
 
             return ( console, fileSystem, inputFile, outputFile, clipboard );

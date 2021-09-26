@@ -1,8 +1,8 @@
 ﻿using System.Xml;
 
-namespace Paper
+namespace LastEpoch
 {
-    public class TestClass
+    public class Filter
     {
         public static XmlDocument Execute()
         {

@@ -2,7 +2,7 @@
   "profiles": {
     "Paper": {
       "commandName": "Project",
-      "commandLineArgs": "-c c:/dev/FilterPaper/src/Paper/TestClass.cs"
+      "commandLineArgs": "-c c:/dev/FilterPaper/src/LastEpoch/Filter.cs"
     }
   }
 }
